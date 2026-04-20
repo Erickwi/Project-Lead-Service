@@ -5,7 +5,21 @@ const pool = require('./config/db');
 
 const app = express();
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
+// Soporta CORS_ORIGIN como string simple o lista separada por comas.
+const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+let corsOptions = { origin: corsOrigin };
+if (corsOrigin && corsOrigin.includes(',')) {
+  const allowed = corsOrigin.split(',').map(s => s.trim()).filter(Boolean);
+  corsOptions = {
+    origin: function(origin, callback) {
+      // permitir llamadas sin origin (postman/server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowed.indexOf(origin) !== -1) return callback(null, true);
+      return callback(new Error('CORS not allowed by server'), false);
+    }
+  };
+}
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Rutas
