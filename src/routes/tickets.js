@@ -42,6 +42,8 @@ function mapIssue(issue, infoMap) {
     dia_despliegue: info.dia_despliegue  || null,
     estado_entrega: info.estado_entrega  || null,
     deploy_status:  info.deploy_status   || null,
+    otrasVersiones: info.otrasVersiones || null,
+    mostrarClienteDespliegue: info.mostrarClienteDespliegue == 1,
   };
 }
 

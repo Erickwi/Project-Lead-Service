@@ -5,7 +5,7 @@ const pool    = require('../config/db');
 // PUT /api/ticket-info/:key — crear o actualizar datos de un ticket
 router.put('/:key', async (req, res) => {
   const { key } = req.params;
-  const { cliente_nombre, dia_despliegue, estado_entrega, deploy_status } = req.body;
+  const { cliente_nombre, dia_despliegue, estado_entrega, deploy_status, otrasVersiones, mostrarClienteDespliegue } = req.body;
 
   if (!/^[A-Z0-9_\-]+$/i.test(key)) {
     return res.status(400).json({ error: 'ticket_key inválido' });
@@ -13,14 +13,16 @@ router.put('/:key', async (req, res) => {
 
   try {
     await pool.query(
-      `INSERT INTO tickets_info (ticket_key, cliente_nombre, dia_despliegue, estado_entrega, deploy_status)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO tickets_info (ticket_key, cliente_nombre, dia_despliegue, estado_entrega, deploy_status, otrasVersiones, mostrarClienteDespliegue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          cliente_nombre = VALUES(cliente_nombre),
          dia_despliegue = VALUES(dia_despliegue),
          estado_entrega = VALUES(estado_entrega),
-         deploy_status  = COALESCE(VALUES(deploy_status), deploy_status)`,
-      [key, cliente_nombre || null, dia_despliegue || null, estado_entrega || null, deploy_status || null]
+         deploy_status  = COALESCE(VALUES(deploy_status), deploy_status),
+         otrasVersiones = VALUES(otrasVersiones),
+         mostrarClienteDespliegue = COALESCE(VALUES(mostrarClienteDespliegue), mostrarClienteDespliegue)`,
+      [key, cliente_nombre || null, dia_despliegue || null, estado_entrega || null, deploy_status || null, otrasVersiones || null, mostrarClienteDespliegue !== undefined ? (mostrarClienteDespliegue ? 1 : 0) : null]
     );
     res.json({ success: true, ticket_key: key });
   } catch (err) {

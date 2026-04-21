@@ -32,19 +32,38 @@ app.use('/api/deploy-plan',  require('./routes/deployPlan'));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 
 // Migración automática: añadir columnas nuevas si no existen
-async function runMigrations() {
+async function safeAddColumn(table, column, sql) {
   try {
-    await pool.query(`
-      ALTER TABLE tickets_info
-        ADD COLUMN IF NOT EXISTS deploy_status ENUM('notificado','confirmado') NULL DEFAULT NULL
-    `);
-    console.log('✅ Migración DB: deploy_status OK');
+    await pool.query(`DESCRIBE ${table}`);
+    const [cols] = await pool.query(`DESCRIBE ${table}`);
+    if (!cols.some(c => c.Field === column)) {
+      await pool.query(sql);
+      return true;
+    }
   } catch (err) {
-    // MySQL 5.x no soporta ADD COLUMN IF NOT EXISTS — intentar silencioso
-    if (!err.message.includes('Duplicate column')) {
-      console.warn('⚠️  Migración deploy_status:', err.message);
+    if (!err.message.includes('Duplicate column name')) {
+      console.warn(`⚠️ Migración ${column}:`, err.message);
     }
   }
+  return false;
+}
+
+async function runMigrations() {
+  const added1 = await safeAddColumn('tickets_info', 'deploy_status',
+    `ALTER TABLE tickets_info ADD COLUMN deploy_status ENUM('notificado','confirmado') NULL`);
+  if (added1) console.log('✅ Migración DB: deploy_status');
+
+  const added2 = await safeAddColumn('recordatorios', 'posicion',
+    `ALTER TABLE recordatorios ADD COLUMN posicion INT DEFAULT 0`);
+  if (added2) console.log('✅ Migración DB: posicion');
+
+  const added3 = await safeAddColumn('tickets_info', 'otrasVersiones',
+    `ALTER TABLE tickets_info ADD COLUMN otrasVersiones VARCHAR(255)`);
+  if (added3) console.log('✅ Migración DB: otrasVersiones');
+
+  const added4 = await safeAddColumn('tickets_info', 'mostrarClienteDespliegue',
+    `ALTER TABLE tickets_info ADD COLUMN mostrarClienteDespliegue TINYINT(1) DEFAULT 1`);
+  if (added4) console.log('✅ Migración DB: mostrarClienteDespliegue');
 }
 
 const PORT = process.env.PORT || 3001;

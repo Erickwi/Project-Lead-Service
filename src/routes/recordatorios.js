@@ -2,14 +2,13 @@ const express = require('express');
 const router  = express.Router();
 const pool    = require('../config/db');
 
-const PRIORIDADES_VALIDAS = ['Alta', 'Media', 'Baja'];
+const PRIORIDADES_VALIDAS = ['Alta', 'Media', 'Baja', 'Verde'];
 
 // GET /api/recordatorios
 router.get('/', async (req, res) => {
   try {
-    // ENUM order: Alta=1, Media=2, Baja=3 → ASC pone Alta primero
     const [rows] = await pool.query(
-      'SELECT * FROM recordatorios ORDER BY prioridad ASC, fecha ASC'
+      'SELECT * FROM recordatorios ORDER BY posicion ASC, prioridad ASC, fecha ASC'
     );
     res.json({ recordatorios: rows });
   } catch (err) {
@@ -26,19 +25,22 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'descripcion es requerida' });
   }
   if (!prioridad || !PRIORIDADES_VALIDAS.includes(prioridad)) {
-    return res.status(400).json({ error: 'prioridad debe ser Alta, Media o Baja' });
+    return res.status(400).json({ error: 'prioridad debe ser Alta, Media, Baja o Verde' });
   }
 
   try {
+    const [maxPos] = await pool.query('SELECT MAX(posicion) as max FROM recordatorios');
+    const nuevaPosicion = (maxPos[0].max || 0) + 1;
     const [result] = await pool.query(
-      'INSERT INTO recordatorios (descripcion, prioridad, fecha) VALUES (?, ?, ?)',
-      [descripcion.trim(), prioridad, fecha || null]
+      'INSERT INTO recordatorios (descripcion, prioridad, fecha, posicion) VALUES (?, ?, ?, ?)',
+      [descripcion.trim(), prioridad, fecha || null, nuevaPosicion]
     );
     res.status(201).json({
       id: result.insertId,
       descripcion: descripcion.trim(),
       prioridad,
       fecha: fecha || null,
+      posicion: nuevaPosicion,
     });
   } catch (err) {
     console.error('[POST /api/recordatorios]', err.message);
@@ -57,7 +59,7 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: 'descripcion es requerida' });
   }
   if (!prioridad || !PRIORIDADES_VALIDAS.includes(prioridad)) {
-    return res.status(400).json({ error: 'prioridad debe ser Alta, Media o Baja' });
+    return res.status(400).json({ error: 'prioridad debe ser Alta, Media, Baja o Verde' });
   }
 
   try {
@@ -69,6 +71,24 @@ router.put('/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[PUT /api/recordatorios]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/recordatorios/reorder - reorder manual
+router.put('/reorder', async (req, res) => {
+  const { orden } = req.body;
+  if (!Array.isArray(orden)) {
+    return res.status(400).json({ error: 'orden debe ser un array de ids' });
+  }
+
+  try {
+    for (let i = 0; i < orden.length; i++) {
+      await pool.query('UPDATE recordatorios SET posicion = ? WHERE id = ?', [i + 1, orden[i]]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PUT /api/recordatorios/reorder]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
