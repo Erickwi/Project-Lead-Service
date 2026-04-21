@@ -48,6 +48,24 @@ router.post('/', async (req, res) => {
   }
 });
 
+// PUT /api/recordatorios/reorder - debe estar antes de /:id
+router.put('/reorder', async (req, res) => {
+  const { orden } = req.body;
+  if (!Array.isArray(orden)) {
+    return res.status(400).json({ error: 'orden debe ser un array de ids' });
+  }
+
+  try {
+    for (let i = 0; i < orden.length; i++) {
+      await pool.query('UPDATE recordatorios SET posicion = ? WHERE id = ?', [i + 1, orden[i]]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PUT /api/recordatorios/reorder]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/recordatorios/:id
 router.put('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
@@ -71,24 +89,6 @@ router.put('/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[PUT /api/recordatorios]', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT /api/recordatorios/reorder - reorder manual
-router.put('/reorder', async (req, res) => {
-  const { orden } = req.body;
-  if (!Array.isArray(orden)) {
-    return res.status(400).json({ error: 'orden debe ser un array de ids' });
-  }
-
-  try {
-    for (let i = 0; i < orden.length; i++) {
-      await pool.query('UPDATE recordatorios SET posicion = ? WHERE id = ?', [i + 1, orden[i]]);
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[PUT /api/recordatorios/reorder]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
