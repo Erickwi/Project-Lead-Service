@@ -44,6 +44,17 @@ function mapIssue(issue, infoMap) {
     deploy_status:  info.deploy_status   || null,
     otrasVersiones: info.otrasVersiones || null,
     mostrarClienteDespliegue: info.mostrarClienteDespliegue == 1,
+    // Subtareas y jerarquía
+    isSubtask: f.issuetype?.subtask === true,
+    parent: f.parent
+      ? { key: f.parent.key, summary: f.parent.fields?.summary || '' }
+      : null,
+    subtasks: (f.subtasks || []).map(s => ({
+      key:      s.key,
+      summary:  s.fields?.summary || '',
+      status:   s.fields?.status?.name || '',
+      assignee: s.fields?.assignee?.displayName || null,
+    })),
   };
 }
 

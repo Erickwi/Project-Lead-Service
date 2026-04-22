@@ -26,6 +26,9 @@ const FIELDS = [
   'customfield_10037', // Fecha fin / due date
   'customfield_10083', // Revisor interno (QA)
   'customfield_10115', // Revisor operativo (Ops)
+  'issuetype',         // Para saber si es subtask
+  'subtasks',          // Subtareas hijas
+  'parent',            // Issue padre (si es subtask)
 ];
 
 /**
