@@ -27,9 +27,28 @@ app.use('/api/tickets',      require('./routes/tickets'));
 app.use('/api/ticket-info',  require('./routes/ticketInfo'));
 app.use('/api/recordatorios', require('./routes/recordatorios'));
 app.use('/api/deploy-plan',  require('./routes/deployPlan'));
+app.use('/api/reporte',      require('./routes/reporte'));
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
+
+// Diagnóstico: devuelve todos los customfields de un issue para identificar IDs
+app.get('/api/debug/fields/:issueKey', async (_req, res) => {
+  const { jiraClient } = require('./config/jira');
+  try {
+    const { data } = await jiraClient.get(`/issue/${_req.params.issueKey}`, {
+      params: { fields: '*all' },
+    });
+    const custom = Object.entries(data.fields)
+      .filter(([k]) => k.startsWith('customfield_'))
+      .map(([k, v]) => ({ id: k, value: v }))
+      .filter(({ value }) => value !== null && value !== undefined)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    res.json({ issueKey: _req.params.issueKey, customFields: custom });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Migración automática: añadir columnas nuevas si no existen
 async function safeAddColumn(table, column, sql) {
@@ -64,6 +83,25 @@ async function runMigrations() {
   const added4 = await safeAddColumn('tickets_info', 'mostrarClienteDespliegue',
     `ALTER TABLE tickets_info ADD COLUMN mostrarClienteDespliegue TINYINT(1) DEFAULT 1`);
   if (added4) console.log('✅ Migración DB: mostrarClienteDespliegue');
+
+  // Tabla pausas_version
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pausas_version (
+        id                 INT           NOT NULL AUTO_INCREMENT,
+        descripcion        TEXT          NOT NULL,
+        tipo               ENUM('Interrupcion','Reunion','Bloqueado','Planeacion','Otro') NOT NULL DEFAULT 'Otro',
+        responsable        VARCHAR(255),
+        fecha_inicio       DATE,
+        fecha_fin          DATE,
+        ticket_relacionado VARCHAR(50),
+        created_at         TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+  } catch (err) {
+    console.warn('⚠️ Migración pausas_version:', err.message);
+  }
 }
 
 const PORT = process.env.PORT || 3001;

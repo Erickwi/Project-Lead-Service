@@ -23,9 +23,15 @@ const FIELDS = [
   'assignee',
   'comment',
   'timeoriginalestimate',
-  'customfield_10037', // Fecha fin / due date
+  'customfield_10037', // Fecha fin estimada / due date
+  'customfield_10038', // Fecha inicio estimada
   'customfield_10083', // Revisor interno (QA)
   'customfield_10115', // Revisor operativo (Ops)
+  'customfield_10114', // Desarrollador(es) — puede ser array multi-usuario
+  'customfield_10354', // Fecha inicio real
+  'customfield_10355', // Fecha fin real
+  'customfield_10388', // Contador revisiones QA Interno
+  'customfield_10389', // Contador revisiones QA Operativo
   'issuetype',         // Para saber si es subtask
   'subtasks',          // Subtareas hijas
   'parent',            // Issue padre (si es subtask)
@@ -118,4 +124,28 @@ async function fetchJiraIssues(jql) {
   return issues;
 }
 
-module.exports = { fetchJiraIssues, adfToText };
+/**
+ * Obtiene el historial de cambios (changelog) de un issue de Jira.
+ * Usa el endpoint paginado /rest/api/3/issue/{key}/changelog.
+ * @param {string} issueKey
+ * @returns {Promise<Array>} Lista de historiales con campos: id, created, items[]
+ */
+async function fetchIssueChangelog(issueKey) {
+  const histories = [];
+  let startAt = 0;
+  const maxResults = 100;
+
+  while (true) {
+    const { data } = await jiraClient.get(`/issue/${issueKey}/changelog`, {
+      params: { startAt, maxResults },
+    });
+    const values = data.values || [];
+    histories.push(...values);
+    if (data.isLast || values.length === 0) break;
+    startAt += values.length;
+  }
+
+  return histories;
+}
+
+module.exports = { fetchJiraIssues, fetchIssueChangelog, adfToText, jiraClient };
