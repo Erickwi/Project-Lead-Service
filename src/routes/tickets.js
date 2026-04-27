@@ -1,6 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const { fetchJiraIssues, adfToText } = require('../config/jira');
+const { fetchJiraIssues, fetchIssueChangelog, adfToText } = require('../config/jira');
 const pool = require('../config/db');
 
 const PRIORITY_ORDER = { Highest: 0, High: 1, Medium: 2, Low: 3, Lowest: 4 };
@@ -110,26 +110,38 @@ router.get('/done', async (req, res) => {
 });
 
 /**
- * Detecta tickets que tienen en su historial de sprints (customfield_10020)
- * el sprint `fromSprintName`. No requiere llamadas adicionales a la API.
+ * Detecta tickets que estuvieron en `fromSprintName` vía changelog de cada issue.
  */
-function findMovedTickets(issues, fromSprintName, infoMap) {
+async function findMovedTickets(issues, fromSprintName, infoMap) {
   const fromLower = fromSprintName.toLowerCase();
-  return issues
-    .filter(issue => {
-      const sprints = issue.fields.customfield_10020;
-      return Array.isArray(sprints) &&
-        sprints.some(s => typeof s.name === 'string' && s.name.toLowerCase().includes(fromLower));
+  const results = await Promise.allSettled(
+    issues.map(async (issue) => {
+      try {
+        const histories = await fetchIssueChangelog(issue.key);
+        const wasMoved = histories.some(h =>
+          h.items?.some(item =>
+            item.field === 'Sprint' &&
+            typeof item.fromString === 'string' &&
+            item.fromString.toLowerCase().includes(fromLower)
+          )
+        );
+        return wasMoved ? issue : null;
+      } catch { return null; }
     })
-    .map(issue => mapIssue(issue, infoMap));
+  );
+  return results
+    .filter(r => r.status === 'fulfilled' && r.value !== null)
+    .map(r => mapIssue(r.value, infoMap));
 }
 
 // GET /api/tickets/sprint-analysis — tickets movidos de 3.10.7 a stable + finalizados por versión
 router.get('/sprint-analysis', async (req, res) => {
   try {
-    const jqlDone306 = process.env.JIRA_JQL_DONE_306;
-    const jqlDone307 = process.env.JIRA_JQL_DONE_307;
-    const fromSprint = process.env.JIRA_SPRINT_FROM || 'Versión 3.10.7';
+    const jqlDone306   = process.env.JIRA_JQL_DONE_306;
+    const jqlDone307   = process.env.JIRA_JQL_DONE_307;
+    const fromSprint   = process.env.JIRA_SPRINT_FROM || 'Versión 3.10.7';
+    const jqlStableAll = process.env.JIRA_JQL_STABLE_ALL ||
+      `project = 'Ecomex 360' AND sprint = "Versión 3.10.6.1 stable" ORDER BY priority ASC`;
 
     const [[dbRows]] = await Promise.all([pool.query('SELECT * FROM tickets_info')]);
     const infoMap = Object.fromEntries(dbRows.map(r => [r.ticket_key, r]));
@@ -145,19 +157,24 @@ router.get('/sprint-analysis', async (req, res) => {
       }
     };
 
-    // done306 y done307 en paralelo (sin query extra para STABLE_ALL)
-    const [done306Result, done307Result] = await Promise.all([
-      safeJql(jqlDone306, 'DONE_306'),
-      safeJql(jqlDone307, 'DONE_307'),
+    const [stableAllResult, done306Result, done307Result] = await Promise.all([
+      safeJql(jqlStableAll, 'STABLE_ALL'),
+      safeJql(jqlDone306,   'DONE_306'),
+      safeJql(jqlDone307,   'DONE_307'),
     ]);
 
-    // Detectar movidos: tickets de done306 que tienen 3.10.7 en su historial de sprints
+    // Detectar movidos via changelog (todos los de stable que alguna vez estuvieron en fromSprint)
     let movedTickets = [];
     let movedError   = null;
-    if (Array.isArray(done306Result)) {
-      movedTickets = findMovedTickets(done306Result, fromSprint, infoMap);
-    } else {
-      movedError = done306Result.error;
+    if (Array.isArray(stableAllResult) && stableAllResult.length > 0) {
+      try {
+        movedTickets = await findMovedTickets(stableAllResult, fromSprint, infoMap);
+      } catch (err) {
+        movedError = err.message;
+        console.error('[sprint-analysis][MOVED changelog]', err.message);
+      }
+    } else if (!Array.isArray(stableAllResult)) {
+      movedError = stableAllResult.error;
     }
 
     res.json({
