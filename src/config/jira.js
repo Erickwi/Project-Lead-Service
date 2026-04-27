@@ -18,6 +18,7 @@ const jiraClient = axios.create({
 // Campos a extraer de cada issue
 const FIELDS = [
   'summary',
+  'description',       // Cuerpo descriptivo del ticket (ADF)
   'status',
   'priority',
   'assignee',
@@ -34,7 +35,8 @@ const FIELDS = [
   'customfield_10388', // Contador revisiones QA Interno
   'customfield_10389', // Contador revisiones QA Operativo
   'customfield_10020', // Sprint (array de objetos con name/state)
-  'issuetype',         // Para saber si es subtask
+  'customfield_10526', // Módulo (single-select: Repositorio, Pagos, etc.)
+  'issuetype',         // Para saber si es subtask y nombre del tipo
   'subtasks',          // Subtareas hijas
   'parent',            // Issue padre (si es subtask)
 ];

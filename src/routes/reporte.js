@@ -78,6 +78,9 @@ function mapIssue(issue, infoMap) {
     revInterno: f.customfield_10083?.[0]?.displayName || 'N/A',
     revOperativo: f.customfield_10115?.[0]?.displayName || 'N/A',
     cliente_nombre: info.cliente_nombre || null,
+    modulo: f.customfield_10526?.value || 'Sin Módulo',
+    tipoTicket: f.issuetype?.name || 'Sin Tipo',
+    descripcion: f.description ? adfToText(f.description) : null,
   };
 }
 
@@ -357,7 +360,60 @@ router.get('/datos', async (req, res) => {
       sinQA: qaBreakdown.sinQA.length,
     };
 
-    // 10. Pausas de la DB
+    // 10. Desglose por Módulo y Tipo de Ticket (todos + solo finalizados)
+    const doneKeys = new Set(doneIssues.map(i => i.key));
+
+    function buildTiposMap(tickets, universo) {
+      const map = {};
+      for (const t of tickets) {
+        const tipo   = t.tipoTicket;
+        const modulo = t.modulo;
+        if (!map[tipo]) map[tipo] = { total: 0, modulos: {} };
+        map[tipo].total++;
+        if (!map[tipo].modulos[modulo]) map[tipo].modulos[modulo] = { count: 0, tickets: [] };
+        map[tipo].modulos[modulo].count++;
+        map[tipo].modulos[modulo].tickets.push({
+          key: t.key, summary: t.summary, status: t.status, assignee: t.assignee,
+          descripcion: t.descripcion || null,
+        });
+      }
+      return Object.fromEntries(
+        Object.entries(map)
+          .sort((a, b) => b[1].total - a[1].total)
+          .map(([tipo, d]) => [
+            tipo,
+            {
+              total: d.total,
+              porcentaje: universo > 0 ? Math.round((d.total / universo) * 1000) / 10 : 0,
+              modulos: Object.fromEntries(
+                Object.entries(d.modulos)
+                  .sort((a, b) => b[1].count - a[1].count)
+                  .map(([mod, mdata]) => [
+                    mod,
+                    {
+                      count: mdata.count,
+                      porcentajeTipo: d.total > 0 ? Math.round((mdata.count / d.total) * 1000) / 10 : 0,
+                      tickets: mdata.tickets,
+                    },
+                  ])
+              ),
+            },
+          ])
+      );
+    }
+
+    const totalTickets    = allTickets.length;
+    const totalFinalizado = doneIssues.length;
+    const ticketsFinalizado = allTickets.filter(t => doneKeys.has(t.key));
+
+    const moduloStats = {
+      totalTickets,
+      totalFinalizado,
+      tipos:            buildTiposMap(allTickets,          totalTickets),
+      tiposFinalizado:  buildTiposMap(ticketsFinalizado,   totalFinalizado),
+    };
+
+    // 11. Pausas de la DB
     const [pausasRows] = await pool.query(
       'SELECT * FROM pausas_version ORDER BY fecha_inicio DESC, created_at DESC'
     );
@@ -371,6 +427,7 @@ router.get('/datos', async (req, res) => {
       revOperativoStats,
       devStats,
       timelineTickets,
+      moduloStats,
       pausas: pausasRows,
     });
   } catch (err) {
