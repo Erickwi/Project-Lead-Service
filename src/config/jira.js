@@ -33,6 +33,7 @@ const FIELDS = [
   'customfield_10355', // Fecha fin real
   'customfield_10388', // Contador revisiones QA Interno
   'customfield_10389', // Contador revisiones QA Operativo
+  'customfield_10020', // Sprint (array de objetos con name/state)
   'issuetype',         // Para saber si es subtask
   'subtasks',          // Subtareas hijas
   'parent',            // Issue padre (si es subtask)

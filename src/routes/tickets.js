@@ -44,6 +44,13 @@ function mapIssue(issue, infoMap) {
     deploy_status:  info.deploy_status   || null,
     otrasVersiones: info.otrasVersiones || null,
     mostrarClienteDespliegue: info.mostrarClienteDespliegue == 1,
+    // Sprint actual
+    sprint: (() => {
+      const sprints = f.customfield_10020;
+      if (!Array.isArray(sprints) || sprints.length === 0) return null;
+      const active = sprints.find(s => s.state === 'active');
+      return (active || sprints[sprints.length - 1])?.name || null;
+    })(),
     // Subtareas y jerarquía
     isSubtask: f.issuetype?.subtask === true,
     parent: f.parent
@@ -98,6 +105,78 @@ router.get('/done', async (req, res) => {
     res.json({ tickets });
   } catch (err) {
     console.error('[GET /api/tickets/done]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Detecta tickets que tienen en su historial de sprints (customfield_10020)
+ * el sprint `fromSprintName`. No requiere llamadas adicionales a la API.
+ */
+function findMovedTickets(issues, fromSprintName, infoMap) {
+  const fromLower = fromSprintName.toLowerCase();
+  return issues
+    .filter(issue => {
+      const sprints = issue.fields.customfield_10020;
+      return Array.isArray(sprints) &&
+        sprints.some(s => typeof s.name === 'string' && s.name.toLowerCase().includes(fromLower));
+    })
+    .map(issue => mapIssue(issue, infoMap));
+}
+
+// GET /api/tickets/sprint-analysis — tickets movidos de 3.10.7 a stable + finalizados por versión
+router.get('/sprint-analysis', async (req, res) => {
+  try {
+    const jqlDone306 = process.env.JIRA_JQL_DONE_306;
+    const jqlDone307 = process.env.JIRA_JQL_DONE_307;
+    const fromSprint = process.env.JIRA_SPRINT_FROM || 'Versión 3.10.7';
+
+    const [[dbRows]] = await Promise.all([pool.query('SELECT * FROM tickets_info')]);
+    const infoMap = Object.fromEntries(dbRows.map(r => [r.ticket_key, r]));
+
+    const safeJql = async (jql, label) => {
+      if (!jql) return [];
+      try {
+        return await fetchJiraIssues(jql);
+      } catch (err) {
+        const detail = err.response?.data?.errorMessages || err.response?.data?.errors || err.message;
+        console.error(`[sprint-analysis][${label}] Error:`, JSON.stringify(detail));
+        return { error: typeof detail === 'string' ? detail : JSON.stringify(detail) };
+      }
+    };
+
+    // done306 y done307 en paralelo (sin query extra para STABLE_ALL)
+    const [done306Result, done307Result] = await Promise.all([
+      safeJql(jqlDone306, 'DONE_306'),
+      safeJql(jqlDone307, 'DONE_307'),
+    ]);
+
+    // Detectar movidos: tickets de done306 que tienen 3.10.7 en su historial de sprints
+    let movedTickets = [];
+    let movedError   = null;
+    if (Array.isArray(done306Result)) {
+      movedTickets = findMovedTickets(done306Result, fromSprint, infoMap);
+    } else {
+      movedError = done306Result.error;
+    }
+
+    res.json({
+      movedTickets,
+      done306: Array.isArray(done306Result) ? done306Result.map(i => mapIssue(i, infoMap)) : [],
+      done307: Array.isArray(done307Result) ? done307Result.map(i => mapIssue(i, infoMap)) : [],
+      errors: {
+        moved:   movedError,
+        done306: Array.isArray(done306Result) ? null : done306Result.error,
+        done307: Array.isArray(done307Result) ? null : done307Result.error,
+      },
+      configured: {
+        moved:   true,
+        done306: !!jqlDone306,
+        done307: !!jqlDone307,
+      },
+    });
+  } catch (err) {
+    console.error('[GET /api/tickets/sprint-analysis]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
