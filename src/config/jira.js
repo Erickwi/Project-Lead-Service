@@ -23,6 +23,7 @@ const FIELDS = [
   'assignee',
   'comment',
   'timeoriginalestimate',
+  'timeestimate',
   'customfield_10037', // Fecha fin estimada / due date
   'customfield_10038', // Fecha inicio estimada
   'customfield_10083', // Revisor interno (QA)
