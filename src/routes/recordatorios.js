@@ -29,18 +29,18 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const [maxPos] = await pool.query('SELECT MAX(posicion) as max FROM recordatorios');
-    const nuevaPosicion = (maxPos[0].max || 0) + 1;
+    // Mover todas las posiciones actuales +1 para que la nueva nota quede en la posición 1
+    await pool.query('UPDATE recordatorios SET posicion = posicion + 1');
     const [result] = await pool.query(
-      'INSERT INTO recordatorios (descripcion, prioridad, fecha, posicion) VALUES (?, ?, ?, ?)',
-      [descripcion.trim(), prioridad, fecha || null, nuevaPosicion]
+      'INSERT INTO recordatorios (descripcion, prioridad, fecha, posicion) VALUES (?, ?, ?, ?) ',
+      [descripcion.trim(), prioridad, fecha || null, 1]
     );
     res.status(201).json({
       id: result.insertId,
       descripcion: descripcion.trim(),
       prioridad,
       fecha: fecha || null,
-      posicion: nuevaPosicion,
+      posicion: 1,
     });
   } catch (err) {
     console.error('[POST /api/recordatorios]', err.message);
