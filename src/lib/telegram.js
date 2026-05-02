@@ -5,7 +5,13 @@ const BASE_URL = TOKEN ? `https://api.telegram.org/bot${TOKEN}` : null;
 
 async function sendMessage(chatId, text) {
   if (!BASE_URL) throw new Error('TELEGRAM_BOT_TOKEN not configured');
-  return axios.post(`${BASE_URL}/sendMessage`, { chat_id: chatId, text, parse_mode: 'Markdown' });
+  // Use HTML parse mode to allow richer formatting (bold, italics, links)
+  return axios.post(`${BASE_URL}/sendMessage`, {
+    chat_id: chatId,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
 }
 
 async function broadcastMessage(chatIds, text) {

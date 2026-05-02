@@ -39,6 +39,9 @@ function mapIssue(issue, infoMap) {
 
   // Rebotes = contador real de rondas QA interno (sin restar 1)
   const rebotesQAInterno = contadorQAInterno !== null ? Math.max(0, contadorQAInterno) : null;
+  // Rebotes total: sumar conteos de QA Interno + QA Operativo para el análisis solicitado
+  const rebotesQATotal = (typeof contadorQAInterno === 'number' ? contadorQAInterno : 0) +
+    (typeof contadorQAOperativo === 'number' ? contadorQAOperativo : 0);
 
   // Retraso en días: fin real - fin estimado (positivo = se retrasó)
   let retraso_dias = null;
@@ -75,6 +78,7 @@ function mapIssue(issue, infoMap) {
     retraso_dias,
     duracion_real_dias,
     contadorQAOperativo,
+    rebotesQATotal,
     revInterno: f.customfield_10083?.[0]?.displayName || 'N/A',
     revOperativo: f.customfield_10115?.[0]?.displayName || 'N/A',
     cliente_nombre: info.cliente_nombre || null,
@@ -297,9 +301,9 @@ router.get('/datos', async (req, res) => {
         devStats[dev].totalQATime += sumaQATime(tl.tiemposPorEstado);
         devStats[dev].retornosTotal += tl.retornos;
 
-        // Rebotes reales desde el contador de Jira
-        if (t.rebotesQAInterno !== null) {
-          devStats[dev].rebotesQAReal += t.rebotesQAInterno;
+        // Rebotes reales desde los contadores de Jira (Interno + Operativo)
+        if (typeof t.rebotesQATotal === 'number') {
+          devStats[dev].rebotesQAReal += t.rebotesQATotal;
         }
 
         // Retraso
@@ -337,7 +341,7 @@ router.get('/datos', async (req, res) => {
       revOperativo: t.revOperativo,
       contadorQAInterno: t.contadorQAInterno,
       contadorQAOperativo: t.contadorQAOperativo,
-      rebotesQAInterno: t.rebotesQAInterno,
+      rebotesQATotal: t.rebotesQATotal,
       retraso_dias: t.retraso_dias,
       duracion_real_dias: t.duracion_real_dias,
       fechaInicioReal: t.fechaInicioReal,
