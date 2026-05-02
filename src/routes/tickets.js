@@ -177,10 +177,72 @@ router.get('/sprint-analysis', async (req, res) => {
       movedError = stableAllResult.error;
     }
 
+    // Enriquecer los tickets finalizados con la fecha del cambio a Done (según changelog)
+    async function enrichDoneList(list) {
+      if (!Array.isArray(list)) return [];
+      const enriched = await Promise.allSettled(list.map(async (issue) => {
+        try {
+          const mapped = mapIssue(issue, infoMap);
+          const histories = await fetchIssueChangelog(issue.key);
+          // Buscar la última entrada donde se cambió el campo 'status'
+          const statusChanges = [];
+          for (const h of histories) {
+            const created = h.created;
+            for (const item of h.items || []) {
+              if (item.field === 'status') {
+                statusChanges.push({ created, from: item.fromString, to: item.toString });
+              }
+            }
+          }
+          // Tomar la última (más reciente)
+          if (statusChanges.length > 0) {
+            const last = statusChanges[statusChanges.length - 1];
+            mapped.doneChange = last;
+            mapped.doneDate = last.created;
+          } else {
+            mapped.doneChange = null;
+            mapped.doneDate = null;
+          }
+          return mapped;
+        } catch (err) {
+          console.error('[sprint-analysis][enrichDoneList] Error for', issue.key, err.message);
+          return mapIssue(issue, infoMap);
+        }
+      }));
+      return enriched.filter(r => r.status === 'fulfilled').map(r => r.value);
+    }
+
+    const done306Mapped = Array.isArray(done306Result) ? done306Result : [];
+    const done307Mapped = Array.isArray(done307Result) ? done307Result : [];
+
+    const [done306Enriched, done307Enriched] = await Promise.all([
+      enrichDoneList(done306Mapped),
+      enrichDoneList(done307Mapped),
+    ]);
+
+    // Agrupar por fecha (YYYY-MM-DD) usando doneDate
+    function groupByDate(list) {
+      const groups = {};
+      for (const t of list) {
+        const d = t.doneDate ? (new Date(t.doneDate)).toISOString().slice(0,10) : 'Sin fecha';
+        if (!groups[d]) groups[d] = [];
+        groups[d].push(t);
+      }
+      // Convertir a array ordenado por fecha descendente
+      return Object.entries(groups)
+        .map(([date, items]) => ({ date, items }))
+        .sort((a,b) => b.date.localeCompare(a.date));
+    }
+
+    const done306Grouped = groupByDate(done306Enriched);
+    const done307Grouped = groupByDate(done307Enriched);
+
     res.json({
       movedTickets,
-      done306: Array.isArray(done306Result) ? done306Result.map(i => mapIssue(i, infoMap)) : [],
-      done307: Array.isArray(done307Result) ? done307Result.map(i => mapIssue(i, infoMap)) : [],
+      done306: done306Enriched,
+      done307: done307Enriched,
+      done306Grouped,
+      done307Grouped,
       errors: {
         moved:   movedError,
         done306: Array.isArray(done306Result) ? null : done306Result.error,

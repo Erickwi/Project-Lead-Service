@@ -75,6 +75,14 @@ async function runMigrations() {
   const added2 = await safeAddColumn('recordatorios', 'posicion',
     `ALTER TABLE recordatorios ADD COLUMN posicion INT DEFAULT 0`);
   if (added2) console.log('✅ Migración DB: posicion');
+  
+  const added5 = await safeAddColumn('recordatorios', 'enviado_telegram',
+    `ALTER TABLE recordatorios ADD COLUMN enviado_telegram TINYINT(1) DEFAULT 0`);
+  if (added5) console.log('✅ Migración DB: enviado_telegram');
+
+  const added6 = await safeAddColumn('recordatorios', 'enviar_telegram',
+    `ALTER TABLE recordatorios ADD COLUMN enviar_telegram TINYINT(1) DEFAULT 0`);
+  if (added6) console.log('✅ Migración DB: enviar_telegram');
 
   const added3 = await safeAddColumn('tickets_info', 'otrasVersiones',
     `ALTER TABLE tickets_info ADD COLUMN otrasVersiones VARCHAR(255)`);
@@ -108,4 +116,12 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   console.log(`✅ Backend corriendo en http://localhost:${PORT}`);
   await runMigrations();
+  // arrancar job de telegram (si está configurado)
+  try {
+    const { startCron } = require('./jobs/telegramCron');
+    startCron();
+    console.log('✓ Telegram cron iniciado (si TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID configurados)');
+  } catch (err) {
+    console.warn('No se pudo inicializar telegram cron:', err.message);
+  }
 });
