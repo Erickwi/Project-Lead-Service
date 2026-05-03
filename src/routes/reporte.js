@@ -160,17 +160,16 @@ function sumaQATime(tiemposPorEstado) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/reporte/datos
-// Datos agregados del reporte de versión (tickets + changelogs)
+// GET /api/reporte/datos-basicos
+// Datos rápidos: tickets sin changelogs (KPIs, status, QA, modulos)
 // ─────────────────────────────────────────────────────────────
-router.get('/datos', async (req, res) => {
+router.get('/datos-basicos', async (req, res) => {
   try {
     const jqlActive = process.env.JIRA_JQL;
     const jqlDone = process.env.JIRA_JQL_DONE;
     if (!jqlActive) return res.status(500).json({ error: 'JIRA_JQL no configurado en .env' });
     if (!jqlDone) return res.status(500).json({ error: 'JIRA_JQL_DONE no configurado en .env' });
 
-    // 1. Obtener todos los tickets + datos de DB
     const [activeIssues, doneIssues, [dbRows]] = await Promise.all([
       fetchJiraIssues(jqlActive),
       fetchJiraIssues(jqlDone),
@@ -181,49 +180,20 @@ router.get('/datos', async (req, res) => {
     const allIssues = [...activeIssues, ...doneIssues];
     const allTickets = allIssues.map(issue => mapIssue(issue, infoMap));
 
-    // 2. Obtener changelog por ticket (en lotes de 5 para no saturar la API)
-    const BATCH = 5;
-    const changelogs = {};
-
-    for (let i = 0; i < allIssues.length; i += BATCH) {
-      const batch = allIssues.slice(i, i + BATCH);
-      const results = await Promise.all(
-        batch.map(async issue => {
-          try {
-            const history = await fetchIssueChangelog(issue.key);
-            return { key: issue.key, history };
-          } catch {
-            return { key: issue.key, history: [] };
-          }
-        })
-      );
-      results.forEach(r => { changelogs[r.key] = r.history; });
-    }
-
-    // 3. Calcular timelines por ticket
-    const ticketTimelines = {};
-    for (const t of allTickets) {
-      ticketTimelines[t.key] = computeTimeline(changelogs[t.key] || []);
-    }
-
-    // 4. Distribución de estados actuales
+    // Distribución de estados
     const statusCounts = {};
     for (const t of allTickets) {
       statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
     }
 
-    // 5. QA Breakdown (quién tiene rev solo interno / solo operativo / ambos / sin QA)
+    // QA Breakdown
     const qaBreakdown = { soloInterno: [], soloOperativo: [], ambos: [], sinQA: [] };
     for (const t of allTickets) {
       const hasInterno = t.revInterno && t.revInterno !== 'N/A';
       const hasOperativo = t.revOperativo && t.revOperativo !== 'N/A';
       const entry = {
-        key: t.key,
-        summary: t.summary,
-        status: t.status,
-        assignee: t.assignee,
-        revInterno: t.revInterno,
-        revOperativo: t.revOperativo,
+        key: t.key, summary: t.summary, status: t.status,
+        assignee: t.assignee, revInterno: t.revInterno, revOperativo: t.revOperativo,
       };
       if (hasInterno && hasOperativo) qaBreakdown.ambos.push(entry);
       else if (hasInterno) qaBreakdown.soloInterno.push(entry);
@@ -231,129 +201,7 @@ router.get('/datos', async (req, res) => {
       else qaBreakdown.sinQA.push(entry);
     }
 
-    // 6. Stats por revisor interno y operativo
-    const revInternoStats = {};
-    const revOperativoStats = {};
-
-    for (const t of allTickets) {
-      const tl = ticketTimelines[t.key];
-
-      if (t.revInterno && t.revInterno !== 'N/A') {
-        if (!revInternoStats[t.revInterno]) {
-          revInternoStats[t.revInterno] = { total: 0, tickets: [], tiempoQA: 0 };
-        }
-        revInternoStats[t.revInterno].total++;
-        revInternoStats[t.revInterno].tickets.push(t.key);
-
-        // Acumular tiempo pasado en estados de QA para este ticket
-        const qaHrs = sumaQATime(tl.tiemposPorEstado);
-        revInternoStats[t.revInterno].tiempoQA += qaHrs;
-      }
-
-      if (t.revOperativo && t.revOperativo !== 'N/A') {
-        if (!revOperativoStats[t.revOperativo]) {
-          revOperativoStats[t.revOperativo] = { total: 0, tickets: [], tiempoQA: 0 };
-        }
-        revOperativoStats[t.revOperativo].total++;
-        revOperativoStats[t.revOperativo].tickets.push(t.key);
-        const qaHrs = sumaQATime(tl.tiemposPorEstado);
-        revOperativoStats[t.revOperativo].tiempoQA += qaHrs;
-      }
-    }
-
-    // Redondear tiempos
-    for (const r of Object.values(revInternoStats)) {
-      r.tiempoQA = Math.round(r.tiempoQA * 10) / 10;
-    }
-    for (const r of Object.values(revOperativoStats)) {
-      r.tiempoQA = Math.round(r.tiempoQA * 10) / 10;
-    }
-
-    // 7. Stats por desarrollador — usa contadores reales de Jira
-    // Usa el campo Desarrollador (customfield_10114), soporta múltiples devs por ticket.
-    // Fallback a assignee si el campo no tiene valor.
-    const devStats = {};
-    for (const t of allTickets) {
-      // Obtener lista de devs reales del ticket (filtrados)
-      const devs = (t.desarrolladores || []).filter(isDeveloper);
-      if (devs.length === 0) continue;
-      const tl = ticketTimelines[t.key];
-      for (const dev of devs) {
-      if (!devStats[dev]) {
-        devStats[dev] = {
-          tickets: [],
-          totalHorasEstimadas: 0,
-          finalizados: 0,
-          totalDevTime: 0,
-          totalQATime: 0,
-          retornosTotal: 0,       // calculado del changelog (fallback)
-          rebotesQAReal: 0,       // calculado del contador de Jira
-          ticketsConRetraso: 0,
-          retrasoPromedioDias: 0,
-          _retrasoAcum: 0,
-          _retrasoCount: 0,
-        };
-      }
-        devStats[dev].tickets.push(t.key);
-        devStats[dev].totalHorasEstimadas += t.horas || 0;
-        if (/done|cerrado|finalizado|completado/i.test(t.status)) devStats[dev].finalizados++;
-        devStats[dev].totalDevTime += sumaDevTime(tl.tiemposPorEstado);
-        devStats[dev].totalQATime += sumaQATime(tl.tiemposPorEstado);
-        devStats[dev].retornosTotal += tl.retornos;
-
-        // Rebotes reales desde los contadores de Jira (Interno + Operativo)
-        if (typeof t.rebotesQATotal === 'number') {
-          devStats[dev].rebotesQAReal += t.rebotesQATotal;
-        }
-
-        // Retraso
-        if (t.retraso_dias !== null && t.retraso_dias > 0) {
-          devStats[dev].ticketsConRetraso++;
-          devStats[dev]._retrasoAcum += t.retraso_dias;
-          devStats[dev]._retrasoCount++;
-        }
-      } // fin loop devs
-    }
-
-    // Redondear y calcular promedios
-    for (const d of Object.values(devStats)) {
-      d.totalHorasEstimadas = Math.round(d.totalHorasEstimadas * 10) / 10;
-      d.totalDevTime = Math.round(d.totalDevTime * 10) / 10;
-      d.totalQATime = Math.round(d.totalQATime * 10) / 10;
-      d.retrasoPromedioDias = d._retrasoCount > 0
-        ? Math.round((d._retrasoAcum / d._retrasoCount) * 10) / 10
-        : 0;
-      delete d._retrasoAcum;
-      delete d._retrasoCount;
-    }
-
-    // 8. Timeline por ticket (para la tabla detallada)
-    const timelineTickets = allTickets.map(t => ({
-      key: t.key,
-      summary: t.summary,
-      desarrolladores: t.desarrolladores,
-      assignee: t.assignee,
-      status: t.status,
-      priority: t.priority,
-      horas: t.horas,
-      horasRestantes: t.horasRestantes,
-      revInterno: t.revInterno,
-      revOperativo: t.revOperativo,
-      contadorQAInterno: t.contadorQAInterno,
-      contadorQAOperativo: t.contadorQAOperativo,
-      rebotesQATotal: t.rebotesQATotal,
-      retraso_dias: t.retraso_dias,
-      duracion_real_dias: t.duracion_real_dias,
-      fechaInicioReal: t.fechaInicioReal,
-      fechaFinReal: t.fechaFinReal,
-      fechaInicioEst: t.fechaInicioEst,
-      fechaFinEstimada: t.fechaFinEstimada,
-      tiemposPorEstado: ticketTimelines[t.key]?.tiemposPorEstado || {},
-      retornos: ticketTimelines[t.key]?.retornos || 0,
-      transiciones: ticketTimelines[t.key]?.transiciones || [],
-    }));
-
-    // 9. Totales
+    // Totales
     const totales = {
       total: allTickets.length,
       activos: activeIssues.length,
@@ -364,14 +212,12 @@ router.get('/datos', async (req, res) => {
       sinQA: qaBreakdown.sinQA.length,
     };
 
-    // 10. Desglose por Módulo y Tipo de Ticket (todos + solo finalizados)
+    // Módulos y tipos
     const doneKeys = new Set(doneIssues.map(i => i.key));
-
     function buildTiposMap(tickets, universo) {
       const map = {};
       for (const t of tickets) {
-        const tipo   = t.tipoTicket;
-        const modulo = t.modulo;
+        const tipo = t.tipoTicket, modulo = t.modulo;
         if (!map[tipo]) map[tipo] = { total: 0, modulos: {} };
         map[tipo].total++;
         if (!map[tipo].modulos[modulo]) map[tipo].modulos[modulo] = { count: 0, tickets: [] };
@@ -382,58 +228,170 @@ router.get('/datos', async (req, res) => {
         });
       }
       return Object.fromEntries(
-        Object.entries(map)
-          .sort((a, b) => b[1].total - a[1].total)
-          .map(([tipo, d]) => [
-            tipo,
-            {
-              total: d.total,
-              porcentaje: universo > 0 ? Math.round((d.total / universo) * 1000) / 10 : 0,
-              modulos: Object.fromEntries(
-                Object.entries(d.modulos)
-                  .sort((a, b) => b[1].count - a[1].count)
-                  .map(([mod, mdata]) => [
-                    mod,
-                    {
-                      count: mdata.count,
-                      porcentajeTipo: d.total > 0 ? Math.round((mdata.count / d.total) * 1000) / 10 : 0,
-                      tickets: mdata.tickets,
-                    },
-                  ])
-              ),
-            },
-          ])
+        Object.entries(map).sort((a, b) => b[1].total - a[1].total)
+          .map(([tipo, d]) => [tipo, {
+            total: d.total,
+            porcentaje: universo > 0 ? Math.round((d.total / universo) * 1000) / 10 : 0,
+            modulos: Object.fromEntries(
+              Object.entries(d.modulos).sort((a, b) => b[1].count - a[1].count)
+                .map(([mod, mdata]) => [mod, {
+                  count: mdata.count,
+                  porcentajeTipo: d.total > 0 ? Math.round((mdata.count / d.total) * 1000) / 10 : 0,
+                  tickets: mdata.tickets,
+                }])
+            ),
+          }])
       );
     }
 
-    const totalTickets    = allTickets.length;
-    const totalFinalizado = doneIssues.length;
-    const ticketsFinalizado = allTickets.filter(t => doneKeys.has(t.key));
-
     const moduloStats = {
-      totalTickets,
-      totalFinalizado,
-      tipos:            buildTiposMap(allTickets,          totalTickets),
-      tiposFinalizado:  buildTiposMap(ticketsFinalizado,   totalFinalizado),
+      totalTickets: allTickets.length,
+      totalFinalizado: doneIssues.length,
+      tipos: buildTiposMap(allTickets, allTickets.length),
+      tiposFinalizado: buildTiposMap(allTickets.filter(t => doneKeys.has(t.key)), doneIssues.length),
     };
-
-    // 11. Pausas de la DB
-    const [pausasRows] = await pool.query(
-      'SELECT * FROM pausas_version ORDER BY fecha_inicio DESC, created_at DESC'
-    );
 
     res.json({
       generadoEn: new Date().toISOString(),
-      totales,
-      statusCounts,
-      qaBreakdown,
-      revInternoStats,
-      revOperativoStats,
-      devStats,
-      timelineTickets,
-      moduloStats,
-      pausas: pausasRows,
+      totales, statusCounts, qaBreakdown, moduloStats,
     });
+  } catch (err) {
+    console.error('[GET /api/reporte/datos-basicos]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/reporte/datos-changelogs
+// Datos pesados: changelogs, devStats, timeline, revisores
+// ─────────────────────────────────────────────────────────────
+router.get('/datos-changelogs', async (req, res) => {
+  try {
+    const jqlActive = process.env.JIRA_JQL;
+    const jqlDone = process.env.JIRA_JQL_DONE;
+    if (!jqlActive || !jqlDone) {
+      return res.status(500).json({ error: 'JIRA_JQL no configurado en .env' });
+    }
+
+    const [activeIssues, doneIssues] = await Promise.all([
+      fetchJiraIssues(jqlActive),
+      fetchJiraIssues(jqlDone),
+    ]);
+
+    const allIssues = [...activeIssues, ...doneIssues];
+    const allTickets = allIssues.map(issue => mapIssue(issue, {}));
+
+    // Changelogs en lotes
+    const BATCH = 5;
+    const changelogs = {};
+    for (let i = 0; i < allIssues.length; i += BATCH) {
+      const batch = allIssues.slice(i, i + BATCH);
+      const results = await Promise.all(
+        batch.map(async issue => {
+          try { return { key: issue.key, history: await fetchIssueChangelog(issue.key) }; }
+          catch { return { key: issue.key, history: [] }; }
+        })
+      );
+      results.forEach(r => { changelogs[r.key] = r.history; });
+    }
+
+    // Timelines
+    const ticketTimelines = {};
+    for (const t of allTickets) {
+      ticketTimelines[t.key] = computeTimeline(changelogs[t.key] || []);
+    }
+
+    // Revisores
+    const revInternoStats = {}, revOperativoStats = {};
+    for (const t of allTickets) {
+      const tl = ticketTimelines[t.key];
+      if (t.revInterno && t.revInterno !== 'N/A') {
+        if (!revInternoStats[t.revInterno]) revInternoStats[t.revInterno] = { total: 0, tickets: [], tiempoQA: 0 };
+        revInternoStats[t.revInterno].total++;
+        revInternoStats[t.revInterno].tickets.push(t.key);
+        revInternoStats[t.revInterno].tiempoQA += sumaQATime(tl.tiemposPorEstado);
+      }
+      if (t.revOperativo && t.revOperativo !== 'N/A') {
+        if (!revOperativoStats[t.revOperativo]) revOperativoStats[t.revOperativo] = { total: 0, tickets: [], tiempoQA: 0 };
+        revOperativoStats[t.revOperativo].total++;
+        revOperativoStats[t.revOperativo].tickets.push(t.key);
+        revOperativoStats[t.revOperativo].tiempoQA += sumaQATime(tl.tiemposPorEstado);
+      }
+    }
+    for (const r of Object.values(revInternoStats)) r.tiempoQA = Math.round(r.tiempoQA * 10) / 10;
+    for (const r of Object.values(revOperativoStats)) r.tiempoQA = Math.round(r.tiempoQA * 10) / 10;
+
+    // Dev stats
+    const devStats = {};
+    for (const t of allTickets) {
+      const devs = (t.desarrolladores || []).filter(isDeveloper);
+      if (devs.length === 0) continue;
+      const tl = ticketTimelines[t.key];
+      for (const dev of devs) {
+        if (!devStats[dev]) {
+          devStats[dev] = {
+            tickets: [], totalHorasEstimadas: 0, finalizados: 0,
+            totalDevTime: 0, totalQATime: 0, retornosTotal: 0, rebotesQAReal: 0,
+            ticketsConRetraso: 0, retrasoPromedioDias: 0, _retrasoAcum: 0, _retrasoCount: 0,
+          };
+        }
+        devStats[dev].tickets.push(t.key);
+        devStats[dev].totalHorasEstimadas += t.horas || 0;
+        if (/done|cerrado|finalizado|completado/i.test(t.status)) devStats[dev].finalizados++;
+        devStats[dev].totalDevTime += sumaDevTime(tl.tiemposPorEstado);
+        devStats[dev].totalQATime += sumaQATime(tl.tiemposPorEstado);
+        devStats[dev].retornosTotal += tl.retornos;
+        if (typeof t.rebotesQATotal === 'number') devStats[dev].rebotesQAReal += t.rebotesQATotal;
+        if (t.retraso_dias !== null && t.retraso_dias > 0) {
+          devStats[dev].ticketsConRetraso++;
+          devStats[dev]._retrasoAcum += t.retraso_dias;
+          devStats[dev]._retrasoCount++;
+        }
+      }
+    }
+    for (const d of Object.values(devStats)) {
+      d.totalHorasEstimadas = Math.round(d.totalHorasEstimadas * 10) / 10;
+      d.totalDevTime = Math.round(d.totalDevTime * 10) / 10;
+      d.totalQATime = Math.round(d.totalQATime * 10) / 10;
+      d.retrasoPromedioDias = d._retrasoCount > 0 ? Math.round((d._retrasoAcum / d._retrasoCount) * 10) / 10 : 0;
+      delete d._retrasoAcum; delete d._retrasoCount;
+    }
+
+    // Timeline tickets
+    const timelineTickets = allTickets.map(t => ({
+      key: t.key, summary: t.summary, desarrolladores: t.desarrolladores, assignee: t.assignee,
+      status: t.status, priority: t.priority, horas: t.horas, horasRestantes: t.horasRestantes,
+      revInterno: t.revInterno, revOperativo: t.revOperativo,
+      contadorQAInterno: t.contadorQAInterno, contadorQAOperativo: t.contadorQAOperativo,
+      rebotesQATotal: t.rebotesQATotal, retraso_dias: t.retraso_dias,
+      duracion_real_dias: t.duracion_real_dias, fechaInicioReal: t.fechaInicioReal,
+      fechaFinReal: t.fechaFinReal, fechaInicioEst: t.fechaInicioEst,
+      fechaFinEstimada: t.fechaFinEstimada,
+      tiemposPorEstado: ticketTimelines[t.key]?.tiemposPorEstado || {},
+      retornos: ticketTimelines[t.key]?.retornos || 0,
+      transiciones: ticketTimelines[t.key]?.transiciones || [],
+    }));
+
+    res.json({
+      generadoEn: new Date().toISOString(),
+      revInternoStats, revOperativoStats, devStats, timelineTickets,
+    });
+  } catch (err) {
+    console.error('[GET /api/reporte/datos-changelogs]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/reporte/datos (LEGACY - mantener compatibilidad)
+// ─────────────────────────────────────────────────────────────
+router.get('/datos', async (req, res) => {
+  try {
+    const [basicos, changelogs] = await Promise.all([
+      fetch('http://localhost:' + (process.env.PORT || 3001) + '/api/reporte/datos-basicos').then(r => r.json()),
+      fetch('http://localhost:' + (process.env.PORT || 3001) + '/api/reporte/datos-changelogs').then(r => r.json()),
+    ]);
+    res.json({ ...basicos, ...changelogs });
   } catch (err) {
     console.error('[GET /api/reporte/datos]', err.message);
     res.status(500).json({ error: err.message });
