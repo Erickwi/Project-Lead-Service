@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const pool    = require('../config/db');
+const logger = require('../lib/logger');
 
 const PRIORIDADES_VALIDAS = ['Alta', 'Media', 'Baja', 'Verde'];
 
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
     );
     res.json({ recordatorios: rows });
   } catch (err) {
-    console.error('[GET /api/recordatorios]', err.message);
+    logger.error('[GET /api/recordatorios]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -44,7 +45,7 @@ router.post('/', async (req, res) => {
       enviar_telegram: enviar_telegram ? 1 : 0,
     });
   } catch (err) {
-    console.error('[POST /api/recordatorios]', err.message);
+    logger.error('[POST /api/recordatorios]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -66,7 +67,7 @@ router.post('/:id/notify', async (req, res) => {
     // No marcamos como enviado para permitir reenvío mientras el checkbox esté activo.
     res.json({ success: true, results });
   } catch (err) {
-    console.error('[POST /api/recordatorios/:id/notify]', err.message);
+    logger.error('[POST /api/recordatorios/:id/notify]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -84,7 +85,7 @@ router.put('/reorder', async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
-    console.error('[PUT /api/recordatorios/reorder]', err.message);
+    logger.error('[PUT /api/recordatorios/reorder]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -111,7 +112,7 @@ router.put('/:id', async (req, res) => {
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Recordatorio no encontrado' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[PUT /api/recordatorios]', err.message);
+    logger.error('[PUT /api/recordatorios]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -126,7 +127,7 @@ router.delete('/:id', async (req, res) => {
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Recordatorio no encontrado' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[DELETE /api/recordatorios]', err.message);
+    logger.error('[DELETE /api/recordatorios]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

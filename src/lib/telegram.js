@@ -1,4 +1,5 @@
 const axios = require('axios');
+const logger = require('./logger');
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const BASE_URL = TOKEN ? `https://api.telegram.org/bot${TOKEN}` : null;
@@ -24,8 +25,10 @@ async function broadcastMessage(chatIds, text) {
       // best-effort
       const res = await sendMessage(id, text);
       results.push({ chatId: id, ok: true, data: res.data });
+      logger.info('Telegram message sent to ' + id);
     } catch (err) {
       results.push({ chatId: id, ok: false, error: err.message });
+      logger.warn('Telegram send failed for ' + id + ': ' + err.message);
     }
   }
   return results;

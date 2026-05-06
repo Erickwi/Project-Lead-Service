@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { fetchJiraIssues, fetchIssueChangelog, adfToText } = require('../config/jira');
 const pool = require('../config/db');
+const logger = require('../lib/logger');
 
 const PRIORITY_ORDER = { Highest: 0, High: 1, Medium: 2, Low: 3, Lowest: 4 };
 
@@ -82,7 +83,7 @@ router.get('/', async (req, res) => {
 
     res.json({ tickets });
   } catch (err) {
-    console.error('[GET /api/tickets]', err.message);
+    logger.error('[GET /api/tickets]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -104,7 +105,7 @@ router.get('/done', async (req, res) => {
 
     res.json({ tickets });
   } catch (err) {
-    console.error('[GET /api/tickets/done]', err.message);
+    logger.error('[GET /api/tickets/done]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -152,7 +153,7 @@ router.get('/sprint-analysis', async (req, res) => {
         return await fetchJiraIssues(jql);
       } catch (err) {
         const detail = err.response?.data?.errorMessages || err.response?.data?.errors || err.message;
-        console.error(`[sprint-analysis][${label}] Error:`, JSON.stringify(detail));
+        logger.error(`[sprint-analysis][${label}] Error:`, JSON.stringify(detail));
         return { error: typeof detail === 'string' ? detail : JSON.stringify(detail) };
       }
     };
@@ -171,7 +172,7 @@ router.get('/sprint-analysis', async (req, res) => {
         movedTickets = await findMovedTickets(stableAllResult, fromSprint, infoMap);
       } catch (err) {
         movedError = err.message;
-        console.error('[sprint-analysis][MOVED changelog]', err.message);
+        logger.error('[sprint-analysis][MOVED changelog]', err.message);
       }
     } else if (!Array.isArray(stableAllResult)) {
       movedError = stableAllResult.error;
@@ -205,7 +206,7 @@ router.get('/sprint-analysis', async (req, res) => {
           }
           return mapped;
         } catch (err) {
-          console.error('[sprint-analysis][enrichDoneList] Error for', issue.key, err.message);
+          logger.error('[sprint-analysis][enrichDoneList] Error for', issue.key, err.message);
           return mapIssue(issue, infoMap);
         }
       }));
@@ -255,7 +256,7 @@ router.get('/sprint-analysis', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('[GET /api/tickets/sprint-analysis]', err.message);
+    logger.error('[GET /api/tickets/sprint-analysis]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

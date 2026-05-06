@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const pool    = require('../config/db');
+const logger = require('../lib/logger');
 const { fetchJiraIssues } = require('../config/jira');
 
 // GET /api/deploy-plan
@@ -59,7 +60,7 @@ router.get('/', async (req, res) => {
 
     res.json({ plan });
   } catch (err) {
-    console.error('[GET /api/deploy-plan]', err.message);
+    logger.error('[GET /api/deploy-plan]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

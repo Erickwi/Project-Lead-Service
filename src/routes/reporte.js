@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { fetchJiraIssues, fetchIssueChangelog, adfToText } = require('../config/jira');
 const pool = require('../config/db');
+const logger = require('../lib/logger');
 
 const PRIORITY_ORDER = { Highest: 0, High: 1, Medium: 2, Low: 3, Lowest: 4 };
 
@@ -256,7 +257,7 @@ router.get('/datos-basicos', async (req, res) => {
       totales, statusCounts, qaBreakdown, moduloStats,
     });
   } catch (err) {
-    console.error('[GET /api/reporte/datos-basicos]', err.message);
+    logger.error('[GET /api/reporte/datos-basicos]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -377,7 +378,7 @@ router.get('/datos-changelogs', async (req, res) => {
       revInternoStats, revOperativoStats, devStats, timelineTickets,
     });
   } catch (err) {
-    console.error('[GET /api/reporte/datos-changelogs]', err.message);
+    logger.error('[GET /api/reporte/datos-changelogs]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -393,7 +394,7 @@ router.get('/datos', async (req, res) => {
     ]);
     res.json({ ...basicos, ...changelogs });
   } catch (err) {
-    console.error('[GET /api/reporte/datos]', err.message);
+    logger.error('[GET /api/reporte/datos]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -408,7 +409,7 @@ router.get('/pausas', async (req, res) => {
     );
     res.json({ pausas: rows });
   } catch (err) {
-    console.error('[GET /api/reporte/pausas]', err.message);
+    logger.error('[GET /api/reporte/pausas]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -437,7 +438,7 @@ router.post('/pausas', async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM pausas_version WHERE id = ?', [result.insertId]);
     res.status(201).json({ pausa: rows[0] });
   } catch (err) {
-    console.error('[POST /api/reporte/pausas]', err.message);
+    logger.error('[POST /api/reporte/pausas]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -452,7 +453,7 @@ router.delete('/pausas/:id', async (req, res) => {
     await pool.query('DELETE FROM pausas_version WHERE id = ?', [id]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('[DELETE /api/reporte/pausas/:id]', err.message);
+    logger.error('[DELETE /api/reporte/pausas/:id]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

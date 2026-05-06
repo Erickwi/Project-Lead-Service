@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const pool = require('./config/db');
+const logger = require('./lib/logger');
 
 const app = express();
 
@@ -21,6 +22,17 @@ if (corsOrigin && corsOrigin.includes(',')) {
 }
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Request logging middleware
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.originalUrl} from ${req.ip}`);
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    logger.info(`${req.method} ${req.originalUrl} -> ${res.statusCode} ${res.statusMessage || ''} ${ms}ms`);
+  });
+  next();
+});
 
 // Rutas
 app.use('/api/tickets',      require('./routes/tickets'));
@@ -61,7 +73,7 @@ async function safeAddColumn(table, column, sql) {
     }
   } catch (err) {
     if (!err.message.includes('Duplicate column name')) {
-      console.warn(`⚠️ Migración ${column}:`, err.message);
+      logger.warn(`⚠️ Migración ${column}:`, err.message);
     }
   }
   return false;
@@ -70,27 +82,27 @@ async function safeAddColumn(table, column, sql) {
 async function runMigrations() {
   const added1 = await safeAddColumn('tickets_info', 'deploy_status',
     `ALTER TABLE tickets_info ADD COLUMN deploy_status ENUM('notificado','confirmado') NULL`);
-  if (added1) console.log('✅ Migración DB: deploy_status');
+  if (added1) logger.info('✅ Migración DB: deploy_status');
 
   const added2 = await safeAddColumn('recordatorios', 'posicion',
     `ALTER TABLE recordatorios ADD COLUMN posicion INT DEFAULT 0`);
-  if (added2) console.log('✅ Migración DB: posicion');
+  if (added2) logger.info('✅ Migración DB: posicion');
   
   const added5 = await safeAddColumn('recordatorios', 'enviado_telegram',
     `ALTER TABLE recordatorios ADD COLUMN enviado_telegram TINYINT(1) DEFAULT 0`);
-  if (added5) console.log('✅ Migración DB: enviado_telegram');
+  if (added5) logger.info('✅ Migración DB: enviado_telegram');
 
   const added6 = await safeAddColumn('recordatorios', 'enviar_telegram',
     `ALTER TABLE recordatorios ADD COLUMN enviar_telegram TINYINT(1) DEFAULT 0`);
-  if (added6) console.log('✅ Migración DB: enviar_telegram');
+  if (added6) logger.info('✅ Migración DB: enviar_telegram');
 
   const added3 = await safeAddColumn('tickets_info', 'otrasVersiones',
     `ALTER TABLE tickets_info ADD COLUMN otrasVersiones VARCHAR(255)`);
-  if (added3) console.log('✅ Migración DB: otrasVersiones');
+  if (added3) logger.info('✅ Migración DB: otrasVersiones');
 
   const added4 = await safeAddColumn('tickets_info', 'mostrarClienteDespliegue',
     `ALTER TABLE tickets_info ADD COLUMN mostrarClienteDespliegue TINYINT(1) DEFAULT 1`);
-  if (added4) console.log('✅ Migración DB: mostrarClienteDespliegue');
+  if (added4) logger.info('✅ Migración DB: mostrarClienteDespliegue');
 
   // Tabla pausas_version
   try {
@@ -108,20 +120,20 @@ async function runMigrations() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
   } catch (err) {
-    console.warn('⚠️ Migración pausas_version:', err.message);
+    logger.warn('⚠️ Migración pausas_version:', err.message);
   }
 }
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
-  console.log(`✅ Backend corriendo en http://localhost:${PORT}`);
+  logger.info(`✅ Backend corriendo en http://localhost:${PORT}`);
   await runMigrations();
   // arrancar job de telegram (si está configurado)
   try {
     const { startCron } = require('./jobs/telegramCron');
     startCron();
-    console.log('✓ Telegram cron iniciado (si TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID configurados)');
+    logger.info('✓ Telegram cron iniciado (si TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID configurados)');
   } catch (err) {
-    console.warn('No se pudo inicializar telegram cron:', err.message);
+    logger.warn('No se pudo inicializar telegram cron:', err.message);
   }
 });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const pool    = require('../config/db');
+const logger = require('../lib/logger');
 
 // PUT /api/ticket-info/:key — crear o actualizar datos de un ticket
 router.put('/:key', async (req, res) => {
@@ -26,7 +27,7 @@ router.put('/:key', async (req, res) => {
     );
     res.json({ success: true, ticket_key: key });
   } catch (err) {
-    console.error('[PUT /api/ticket-info]', err.message);
+    logger.error('[PUT /api/ticket-info]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -54,7 +55,7 @@ router.patch('/:key/deploy-status', async (req, res) => {
     );
     res.json({ success: true, ticket_key: key, deploy_status });
   } catch (err) {
-    console.error('[PATCH /api/ticket-info/deploy-status]', err.message);
+    logger.error('[PATCH /api/ticket-info/deploy-status]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
