@@ -164,12 +164,31 @@ router.get('/sprint-analysis', async (req, res) => {
       safeJql(jqlDone307,   'DONE_307'),
     ]);
 
+    // Deduplicate issues by key in case JQLs overlap or sprint names changed.
+    function uniqueIssues(list) {
+      if (!Array.isArray(list)) return list;
+      const seen = new Set();
+      const out = [];
+      for (const it of list) {
+        const k = it?.key;
+        if (!k) continue;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(it);
+      }
+      return out;
+    }
+
+    const stableAllDedup = Array.isArray(stableAllResult) ? uniqueIssues(stableAllResult) : stableAllResult;
+    const done306Mapped = Array.isArray(done306Result) ? uniqueIssues(done306Result) : done306Result;
+    const done307Mapped = Array.isArray(done307Result) ? uniqueIssues(done307Result) : done307Result;
+
     // Detectar movidos via changelog (todos los de stable que alguna vez estuvieron en fromSprint)
     let movedTickets = [];
     let movedError   = null;
-    if (Array.isArray(stableAllResult) && stableAllResult.length > 0) {
+    if (Array.isArray(stableAllDedup) && stableAllDedup.length > 0) {
       try {
-        movedTickets = await findMovedTickets(stableAllResult, fromSprint, infoMap);
+        movedTickets = await findMovedTickets(stableAllDedup, fromSprint, infoMap);
       } catch (err) {
         movedError = err.message;
         logger.error('[sprint-analysis][MOVED changelog]', err.message);
@@ -213,13 +232,48 @@ router.get('/sprint-analysis', async (req, res) => {
       return enriched.filter(r => r.status === 'fulfilled').map(r => r.value);
     }
 
-    const done306Mapped = Array.isArray(done306Result) ? done306Result : [];
-    const done307Mapped = Array.isArray(done307Result) ? done307Result : [];
-
-    const [done306Enriched, done307Enriched] = await Promise.all([
+    let [done306Enriched, done307Enriched] = await Promise.all([
       enrichDoneList(done306Mapped),
       enrichDoneList(done307Mapped),
     ]);
+
+    // Remove duplicates between the two done lists (by ticket key).
+    // Prefer entries in done306Enriched; filter them out of done307Enriched.
+    try {
+      const done306Keys = new Set(done306Enriched.map(t => t.key));
+      done307Enriched = done307Enriched.filter(t => !done306Keys.has(t.key));
+    } catch (e) {
+      logger.warn('[sprint-analysis] Error deduplicating done lists:', e.message);
+    }
+
+    // Infer readable titles for the two groups based on sprint names or JQL
+    function inferTitleFromList(list, envJql, defaultLabel) {
+      try {
+        if (Array.isArray(list) && list.length > 0) {
+          const counts = {};
+          for (const t of list) {
+            const s = t.sprint || null;
+            if (!s) continue;
+            counts[s] = (counts[s] || 0) + 1;
+          }
+          const entries = Object.entries(counts);
+          if (entries.length > 0) {
+            entries.sort((a,b) => b[1] - a[1]);
+            return `Finalizados — ${entries[0][0]}`;
+          }
+        }
+        if (envJql && typeof envJql === 'string') {
+          const m = envJql.match(/sprint\s*=\s*["']([^"']+)["']/i);
+          if (m && m[1]) return `Finalizados — ${m[1]}`;
+        }
+      } catch (e) {
+        logger.warn('Error inferring title:', e.message);
+      }
+      return defaultLabel;
+    }
+
+    const done306Title = inferTitleFromList(done306Enriched, jqlDone306, 'Finalizados — 3.10.6 Stable');
+    const done307Title = inferTitleFromList(done307Enriched, jqlDone307, 'Finalizados — 3.10.7');
 
     // Agrupar por fecha (YYYY-MM-DD) usando doneDate
     function groupByDate(list) {
@@ -242,6 +296,8 @@ router.get('/sprint-analysis', async (req, res) => {
       movedTickets,
       done306: done306Enriched,
       done307: done307Enriched,
+      done306Title,
+      done307Title,
       done306Grouped,
       done307Grouped,
       errors: {
