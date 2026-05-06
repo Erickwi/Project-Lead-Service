@@ -3,7 +3,7 @@ const router  = express.Router();
 const pool    = require('../config/db');
 const logger = require('../lib/logger');
 
-const PRIORIDADES_VALIDAS = ['Alta', 'Media', 'Baja', 'Verde'];
+const PRIORIDADES_VALIDAS = ['Alta', 'Media', 'Baja'];
 
 // GET /api/recordatorios
 router.get('/', async (req, res) => {
@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'descripcion es requerida' });
   }
   if (!prioridad || !PRIORIDADES_VALIDAS.includes(prioridad)) {
-    return res.status(400).json({ error: 'prioridad debe ser Alta, Media, Baja o Verde' });
+    return res.status(400).json({ error: 'prioridad debe ser Alta, Media o Baja' });
   }
 
   try {
@@ -101,7 +101,7 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: 'descripcion es requerida' });
   }
   if (!prioridad || !PRIORIDADES_VALIDAS.includes(prioridad)) {
-    return res.status(400).json({ error: 'prioridad debe ser Alta, Media, Baja o Verde' });
+    return res.status(400).json({ error: 'prioridad debe ser Alta, Media o Baja' });
   }
 
   try {
