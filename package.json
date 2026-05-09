@@ -8,11 +8,11 @@
     "dev": "node --watch src/app.js"
   },
   "dependencies": {
-    "axios": "^1.7.9",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.2",
-    "mysql2": "^3.11.5",
-    "node-cron": "^3.0.2"
+    "axios": "^1.16.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "mysql2": "^3.22.1",
+    "node-cron": "^4.2.1"
   }
 }
