@@ -135,6 +135,37 @@ async function findMovedTickets(issues, fromSprintName, infoMap) {
     .map(r => mapIssue(r.value, infoMap));
 }
 
+router.get('/sprint-frederick', async (req, res) => {
+  try {
+    const sprintName = process.env.JIRA_SPRINT_FREDERICK || 'Desarrollos pasantía Frederick';
+    const jql = process.env.JIRA_JQL_FREDERICK ||
+      `project = 'Ecomex 360' AND sprint = "${sprintName}" ORDER BY priority ASC`;
+
+    const [jiraIssues, dbResult] = await Promise.all([
+      fetchJiraIssues(jql),
+      pool.query('SELECT * FROM tickets_info'),
+    ]);
+    const [dbRows] = dbResult;
+    const infoMap = Object.fromEntries(dbRows.map(r => [r.ticket_key, r]));
+    const tickets = jiraIssues.map(issue => mapIssue(issue, infoMap));
+
+    const DONE_RE = /done|cerrado|finalizado|completado/i;
+    const total    = tickets.length;
+    const finished = tickets.filter(t => DONE_RE.test(t.status || '')).length;
+
+    const byStatus = {};
+    for (const t of tickets) {
+      const s = t.status || 'Sin estado';
+      byStatus[s] = (byStatus[s] || 0) + 1;
+    }
+
+    res.json({ tickets, total, finished, byStatus, sprintName });
+  } catch (err) {
+    logger.error('[GET /api/tickets/sprint-frederick]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/tickets/sprint-analysis — tickets movidos de 3.10.7 a stable + finalizados por versión
 router.get('/sprint-analysis', async (req, res) => {
   try {
