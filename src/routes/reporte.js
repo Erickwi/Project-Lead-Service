@@ -373,9 +373,39 @@ router.get('/datos-changelogs', async (req, res) => {
       transiciones: ticketTimelines[t.key]?.transiciones || [],
     }));
 
+    // Métrica: tickets sin observaciones (comentarios) y que tuvieron una sola transición de estado directo a Done
+    const singleStepNoComments = [];
+    const DONE_RE = /done|cerrado|finalizado|completado/i;
+    for (const issue of allIssues) {
+      try {
+        const key = issue.key;
+        const comments = issue.fields?.comment?.comments || [];
+        if (comments.length > 0) continue; // tiene observaciones
+        const histories = changelogs[key] || [];
+        const statusChanges = [];
+        for (const h of histories) {
+          for (const item of h.items || []) {
+            if (item.field === 'status') {
+              statusChanges.push({ from: item.fromString, to: item.toString, created: h.created });
+            }
+          }
+        }
+        if (statusChanges.length === 1 && DONE_RE.test(statusChanges[0].to || '')) {
+          singleStepNoComments.push(key);
+        }
+      } catch (e) {
+        // ignorar y continuar
+      }
+    }
+
     res.json({
       generadoEn: new Date().toISOString(),
-      revInternoStats, revOperativoStats, devStats, timelineTickets,
+      revInternoStats,
+      revOperativoStats,
+      devStats,
+      timelineTickets,
+      singleStepNoCommentsCount: singleStepNoComments.length,
+      singleStepNoComments,
     });
   } catch (err) {
     logger.error('[GET /api/reporte/datos-changelogs]', err.message);
