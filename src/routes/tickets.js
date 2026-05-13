@@ -15,6 +15,7 @@ function mapIssue(issue, infoMap) {
 
   const comments    = f.comment?.comments || [];
   const fechaFin    = f.customfield_10037 || null;
+  const resolutionDate = f.resolutiondate || null;
   const hoy         = new Date();
   const esUrgente   = fechaFin
     ? Math.ceil((new Date(fechaFin) - hoy) / (1000 * 60 * 60 * 24)) <= 1
@@ -29,6 +30,7 @@ function mapIssue(issue, infoMap) {
     assignee:      f.assignee?.displayName || '⚠️ SIN ASIGNAR',
     horas:         f.timeoriginalestimate ? f.timeoriginalestimate / 3600 : 16,
     fechaFin,
+    resolutionDate,
     esUrgente,
     revInterno:    f.customfield_10083?.[0]?.displayName || 'N/A',
     revOperativo:  f.customfield_10115?.[0]?.displayName || 'N/A',
@@ -251,8 +253,9 @@ router.get('/sprint-analysis', async (req, res) => {
             mapped.doneChange = last;
             mapped.doneDate = last.created;
           } else {
+            // Si no hay cambios de status en el changelog, usar la fecha de resolución si está disponible
             mapped.doneChange = null;
-            mapped.doneDate = null;
+            mapped.doneDate = mapped.resolutionDate || null;
           }
           return mapped;
         } catch (err) {
