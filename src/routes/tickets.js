@@ -241,11 +241,16 @@ router.get('/sprint-analysis', async (req, res) => {
           const statusChanges = [];
           for (const h of histories) {
             const created = h.created;
-            for (const item of h.items || []) {
-              if (item.field === 'status') {
-                statusChanges.push({ created, from: item.fromString, to: item.toString });
+              for (const item of h.items || []) {
+                if (item.field === 'status') {
+                  statusChanges.push({
+                    created,
+                    from: item.fromString,
+                    to: item.toString,
+                    author: h.author?.displayName || null,
+                  });
+                }
               }
-            }
           }
           // Tomar la última (más reciente)
           if (statusChanges.length > 0) {
